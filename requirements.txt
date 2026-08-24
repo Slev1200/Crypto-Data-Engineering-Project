@@ -1,0 +1,10 @@
+apache-flink==1.16.2
+psycopg2-binary==2.9.1
+requests
+
+python-dotenv
+dotenv
+kafka-python
+pandas
+pyspark
+streamlit
