@@ -59,7 +59,7 @@ PostgreSQL analytics views prepare the batch and streaming datasets before they 
 
 The dashboard separates the project into two analytical perspectives:
 
-# Historical / Batch Analytics
+### Historical / Batch Analytics
 
 Built from the Spark Gold pipeline:
 
@@ -67,7 +67,7 @@ Built from the Spark Gold pipeline:
 - Daily Market Movers
 - Daily Trading Volume
 
-# Streaming Analytics
+### Streaming Analytics
 
 Built from the Kafka and Flink pipeline:
 
@@ -214,7 +214,7 @@ Event count
 
 The combination of cryptocurrency and window timestamps uniquely identifies each streaming result.
 
-### Data Quality
+## Data Quality
 
 I added SQL data-quality checks to validate the reliability of the event-level data before using it for analytics.
 
