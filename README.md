@@ -168,7 +168,7 @@ Docker Compose allows the services to communicate with each other while keeping 
 
 The PostgreSQL layer contains tables for raw event storage, reference data, batch analytics, and streaming analytics.
 
-raw_crypto_price_events
+### raw_crypto_price_events
 
 Stores the original cryptocurrency price events consumed from Kafka.
 
