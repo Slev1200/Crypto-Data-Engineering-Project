@@ -168,19 +168,19 @@ Docker Compose allows the services to communicate with each other while keeping 
 
 The PostgreSQL layer contains tables for raw event storage, reference data, batch analytics, and streaming analytics.
 
-# raw_crypto_price_events
+raw_crypto_price_events
 
 Stores the original cryptocurrency price events consumed from Kafka.
 
 This table provides a persistent copy of the incoming event data before downstream transformations.
 
-# fact_price_tick
+fact_price_tick
 
 Stores event-level cryptocurrency price observations in a structured format.
 
 Each event is identified using a deterministic event_id, which allows duplicate events to be ignored during ingestion.
 
-# dim_coin
+dim_coin
 
 Stores descriptive information about each cryptocurrency, including:
 
@@ -196,7 +196,7 @@ Active status
 
 This dimension table allows analytical fact tables to be joined with readable cryptocurrency metadata.
 
-# stg_daily_coin_metrics
+stg_daily_coin_metrics
 
 Temporary staging table used when loading Spark Gold results into PostgreSQL.
 
@@ -204,7 +204,7 @@ Spark writes the daily aggregated dataset into this table first. SQL then upsert
 
 The staging table is intentionally disposable and can be overwritten during each batch load.
 
-# fact_daily_coin_metrics
+fact_daily_coin_metrics
 
 Final batch analytics table containing one row per cryptocurrency per day.
 
@@ -232,7 +232,7 @@ coin_id + metric_date
 
 This prevents multiple final records from being created for the same coin and date.
 
-# fact_price_window_5m
+fact_price_window_5m
 
 Final streaming analytics table populated by Apache Flink.
 
@@ -254,7 +254,7 @@ Event count
 
 The combination of cryptocurrency and window timestamps uniquely identifies each streaming result.
 
-# Data Quality
+Data Quality
 
 I added SQL data-quality checks to validate the reliability of the event-level data before using it for analytics.
 
@@ -262,7 +262,7 @@ The checks are stored in:
 
 sql/data_quality_checks.sql
 
-# Duplicate Event Check
+Duplicate Event Check
 
 Checks whether the same event_id appears more than once.
 
@@ -280,7 +280,7 @@ Spark Silver performs deduplication using event_id.
 
 This gives the pipeline multiple layers of protection against duplicate events.
 
-# Invalid Price Check
+Invalid Price Check
 
 Checks for cryptocurrency events where the price is:
 
@@ -296,7 +296,7 @@ Expected result:
 
 0 rows
 
-# Data Freshness Check
+Data Freshness Check
 
 Checks the newest event timestamp and compares it with the current time.
 
@@ -308,7 +308,7 @@ This check caught a real issue during development when the Kafka-to-PostgreSQL c
 
 After restarting and correcting the consumer configuration, PostgreSQL caught up with the Kafka events.
 
-# Recent Coin Coverage
+Recent Coin Coverage
 
 Checks how many expected cryptocurrencies have appeared within the recent ingestion window.
 
@@ -318,7 +318,7 @@ The project currently tracks nine cryptocurrencies, so the expected result durin
 
 This helps identify situations where the pipeline is technically receiving data but one or more cryptocurrencies are missing.
 
-# Event Volume by Coin
+Event Volume by Coin
 
 Checks the number of recently received events for each cryptocurrency.
 
