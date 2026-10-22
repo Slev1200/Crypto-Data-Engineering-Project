@@ -5,6 +5,4 @@ requests
 python-dotenv
 dotenv
 kafka-python
-pandas
 pyspark
-streamlit
