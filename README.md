@@ -4,9 +4,17 @@
 
 I built this project to get hands-on experience designing an end-to-end data engineering pipeline using both batch and streaming processing.
 
-The pipeline collects cryptocurrency price data from the CoinGecko API, sends the events through Kafka, stores the raw data in PostgreSQL, and then uses Spark to transform the data through Bronze, Silver, and Gold layers.
+The pipeline collects cryptocurrency price data from the CoinGecko API using a Python producer. Each collection cycle publishes price events to Kafka while also writing the raw events to a local Bronze layer in JSON format.
 
-I also built a separate streaming path using Flink that continuously consumes cryptocurrency price events from Kafka and calculates 5-minute price metrics.
+From there, the project has multiple processing paths:
+
+- A Python Kafka consumer stores event-level data in PostgreSQL.
+
+- PySpark processes the Bronze data through Silver and Gold layers for historical batch analytics.
+
+- Apache Flink independently consumes the Kafka stream and calculates 5-minute price-window metrics for near-real-time analytics.
+
+- PostgreSQL analytics views prepare the final batch and streaming metrics for visualization in Tableau Public.
 
 The main goal of the project was not to use as many technologies as possible, but to understand where each tool fits in a data pipeline and why I would use it.
 
@@ -17,32 +25,41 @@ The main goal of the project was not to use as many technologies as possible, bu
                               |
                               v
                         Python Producer
-                              |
-                              v
-                            Kafka
-                           /     \
-                          /       \
-                         v         v
-              PostgreSQL Raw     Flink
-                    |              |
-                    v              v
-                 Bronze       5-Minute Price
-                    |          Window Metrics
-                    v              |
-                 PySpark            v
-                    |          PostgreSQL
-                    v
-                 Silver
-                    |
-                    v
-                 PySpark
-                    |
-                    v
-                  Gold
-                    |
-                    v
-              PostgreSQL
-             Analytics Tables
+                         /           \
+                        /             \
+                       v               v
+                     Kafka         Bronze JSONL
+                    /     \              |
+                   /       \             v
+                  v         v          PySpark
+           Python Consumer  Flink        |
+                  |           |          v
+                  v           |        Silver
+            PostgreSQL        |          |
+           Raw/Event Data     |          v
+                              |        PySpark
+                              |          |
+                              |          v
+                              |         Gold
+                              |          |
+                              |          v
+                              |    PostgreSQL Staging
+                              |          |
+                              |          v
+                              |    Idempotent Upsert
+                              |          |
+                              v          v
+                         PostgreSQL Analytics
+                       5-Minute + Daily Metrics
+                                 |
+                                 v
+                           Analytics Views
+                                 |
+                                 v
+                             CSV Export
+                                 |
+                                 v
+                           Tableau Public
 ```
 
 The project has two main processing paths:
@@ -50,23 +67,23 @@ The project has two main processing paths:
 ### Batch Pipeline
 
 ```text
-CoinGecko → Kafka → PostgreSQL → Bronze → Silver → Gold → PostgreSQL
+CoinGecko → Python Producer → Bronze JSONL → PySpark Silver → PySpark Gold → PostgreSQL Staging → SQL Upsert → fact_daily_coin_metrics
 ```
 
 The batch pipeline stores incoming cryptocurrency events and then processes them with PySpark.
 
 The data moves through a medallion architecture:
 
-- **Bronze:** Raw cryptocurrency data
+- **Bronze:** Raw cryptocurrency API data stored as JSONL
 - **Silver:** Cleaned and transformed data
-- **Gold:** Aggregated daily cryptocurrency metrics used for analytics
+- **Gold:** Aggregated daily cryptocurrency metrics from the Silver layer used for analytics
 
 The Gold data is written to a PostgreSQL staging table before being upserted into the final fact table. This allows the pipeline to update existing records instead of creating duplicate daily metrics every time it runs.
 
 ### Streaming Pipeline
 
 ```text
-CoinGecko → Kafka → Flink → PostgreSQL
+CoinGecko → Python Producer → Kafka → Flink → PostgreSQL
 ```
 
 The streaming pipeline runs separately from the batch pipeline.
@@ -74,6 +91,36 @@ The streaming pipeline runs separately from the batch pipeline.
 Flink continuously consumes cryptocurrency price events from Kafka and calculates metrics over 5-minute windows. The results are written to the `fact_price_window_5m` table in PostgreSQL.
 
 This allowed me to work with both batch processing and continuous stream processing in the same project and understand when each approach is useful.
+
+### Analytics Dashboard
+The final analytics layer is visualized using Tableau Public.
+
+PostgreSQL analytics views prepare the batch and streaming datasets before they are exported to CSV and loaded into Tableau Public.
+
+The dashboard separates the project into two analytical perspectives:
+
+# Historical / Batch Analytics
+
+Built from the Spark Gold pipeline:
+
+- Daily Price Trend
+- Daily Market Movers
+- Daily Trading Volume
+
+# Streaming Analytics
+
+Built from the Kafka and Flink pipeline:
+
+- Latest Average Price
+- Window Low
+- Window High
+- Events in Window
+- Streaming Price Trend
+- 5-Minute Price Change
+
+A shared Selected Coin parameter allows the user to change the cryptocurrency being analyzed across the historical and streaming visuals.
+
+Tableau Dashboard Link: https://public.tableau.com/app/profile/sam.levin8758/viz/CryptoMarketIntelligenceBatchStreamingDataPipeline/CryptoMarketIntelligence?publish=yes
 
 ## Technology Stack
 
@@ -117,138 +164,179 @@ Used to run the different parts of the project in containers, including:
 
 Docker Compose allows the services to communicate with each other while keeping the local environment reproducible.
 
-## Data Flow
-
-### 1. Cryptocurrency Ingestion
-
-`coingecko_to_kafka.py` retrieves cryptocurrency price data from the CoinGecko API and publishes the events to the Kafka topic:
-
-```text
-crypto.price_ticks
-```
-
-### 2. Kafka to PostgreSQL
-
-`kafka_to_postgres.py` consumes the Kafka events and writes them into PostgreSQL.
-
-This creates a persistent copy of the incoming events that can later be used by the batch-processing pipeline.
-
-### 3. Bronze Layer
-
-The Bronze layer keeps the raw ingested cryptocurrency data with minimal transformation.
-
-The purpose of this layer is to preserve the original data before performing additional cleaning or aggregation.
-
-### 4. Silver Layer
-
-PySpark reads the Bronze data and produces a cleaned Silver dataset.
-
-This layer prepares the data for downstream analytics and aggregation.
-
-### 5. Gold Layer
-
-PySpark aggregates the Silver data into daily cryptocurrency metrics.
-
-The Gold dataset is then written into the PostgreSQL staging table:
-
-```text
-stg_daily_coin_metrics
-```
-
-SQL upsert logic moves the data into the final analytics fact table:
-
-```text
-fact_daily_coin_metrics
-```
-
-Using an upsert allows the pipeline to be rerun without creating duplicate records for the same cryptocurrency and date.
-
-### 6. Real-Time Flink Processing
-
-Flink consumes the same Kafka cryptocurrency events independently of the batch pipeline.
-
-It groups incoming events into 5-minute windows and writes the calculated metrics into:
-
-```text
-fact_price_window_5m
-```
-
-This provides a continuously updated view of short-term cryptocurrency price activity.
-
 ## Data Model
 
-Some of the main PostgreSQL tables used in the project include:
+The PostgreSQL layer contains tables for raw event storage, reference data, batch analytics, and streaming analytics.
 
-### Raw Data
+# raw_crypto_price_events
 
-Stores the cryptocurrency events consumed from Kafka.
+Stores the original cryptocurrency price events consumed from Kafka.
 
-### `stg_daily_coin_metrics`
+This table provides a persistent copy of the incoming event data before downstream transformations.
 
-Temporary staging table used when loading Gold-level batch metrics into PostgreSQL.
+# fact_price_tick
 
-### `fact_daily_coin_metrics`
+Stores event-level cryptocurrency price observations in a structured format.
 
-Stores the final daily cryptocurrency metrics produced by the Spark batch pipeline.
+Each event is identified using a deterministic event_id, which allows duplicate events to be ignored during ingestion.
 
-### `fact_price_window_5m`
+# dim_coin
 
-Stores the 5-minute cryptocurrency metrics produced by the Flink streaming pipeline.
+Stores descriptive information about each cryptocurrency, including:
 
-## Data Quality
+Coin ID
 
-The project also contains SQL data-quality checks used to validate the data after it moves through the pipeline.
+Symbol
 
-These checks help identify issues such as missing values, duplicate records, and unexpected data before the data is used for analytics.
+Name
 
-## Project Structure
+Sector
 
-```text
-Crypto-Data-Engineering-Project/
-│
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── example.env
-│
-├── sql/
-│   ├── 001_create_raw_tables.sql
-│   ├── 002_create_dim_tables.sql
-│   ├── 003_create_fact_tables.sql
-│   ├── 004_upsert_gold_daily.sql
-│   ├── 005_create_realtime_metrics.sql
-│   ├── analytics_queries.sql
-│   ├── data_quality_checks.sql
-│   └── init.sql
-│
-└── src/
-    └── producer/
-        ├── coingecko_to_kafka.py
-        │
-        └── consumer/
-            ├── kafka_to_postgres.py
-            │
-            └── spark/
-                ├── read_bronze.py
-                ├── build_silver.py
-                ├── build_daily_coin_metrics.py
-                ├── build_gold_daily.py
-                ├── write_gold_to_postgres.py
-                │
-                └── flink/
-                    ├── price_window_metrics.py
-                    │
-                    └── dashboard/
-                        └── app.py
-```
+Active status
 
-## Environment Variables
+This dimension table allows analytical fact tables to be joined with readable cryptocurrency metadata.
 
-The project uses environment variables for configuration and credentials.
+# stg_daily_coin_metrics
 
-An `example.env` file is included to show the required variables without exposing API keys or passwords.
+Temporary staging table used when loading Spark Gold results into PostgreSQL.
 
-The actual environment file is excluded from Git using `.gitignore`.
+Spark writes the daily aggregated dataset into this table first. SQL then upserts the data into the final fact table.
+
+The staging table is intentionally disposable and can be overwritten during each batch load.
+
+# fact_daily_coin_metrics
+
+Final batch analytics table containing one row per cryptocurrency per day.
+
+Metrics include:
+
+Average price
+
+Minimum price
+
+Maximum price
+
+Average market capitalization
+
+Average reported trading volume
+
+Number of price observations
+
+First event timestamp
+
+Last event timestamp
+
+The primary key is based on:
+
+coin_id + metric_date
+
+This prevents multiple final records from being created for the same coin and date.
+
+# fact_price_window_5m
+
+Final streaming analytics table populated by Apache Flink.
+
+Each row represents a 5-minute event-time window for a cryptocurrency.
+
+Metrics include:
+
+Window start
+
+Window end
+
+Average price
+
+Minimum price
+
+Maximum price
+
+Event count
+
+The combination of cryptocurrency and window timestamps uniquely identifies each streaming result.
+
+# Data Quality
+
+I added SQL data-quality checks to validate the reliability of the event-level data before using it for analytics.
+
+The checks are stored in:
+
+sql/data_quality_checks.sql
+
+# Duplicate Event Check
+
+Checks whether the same event_id appears more than once.
+
+Expected result:
+
+0 rows
+
+Duplicate protection also exists earlier in the pipeline:
+
+The producer avoids sending the same event twice during a running session.
+
+The PostgreSQL consumer uses ON CONFLICT DO NOTHING.
+
+Spark Silver performs deduplication using event_id.
+
+This gives the pipeline multiple layers of protection against duplicate events.
+
+# Invalid Price Check
+
+Checks for cryptocurrency events where the price is:
+
+NULL
+
+or:
+
+<= 0
+
+These records would not be valid for price-based analytics.
+
+Expected result:
+
+0 rows
+
+# Data Freshness Check
+
+Checks the newest event timestamp and compares it with the current time.
+
+This answers:
+
+Is the pipeline still receiving current data?
+
+This check caught a real issue during development when the Kafka-to-PostgreSQL consumer had stopped running. The underlying infrastructure was available, but the fact table had become stale.
+
+After restarting and correcting the consumer configuration, PostgreSQL caught up with the Kafka events.
+
+# Recent Coin Coverage
+
+Checks how many expected cryptocurrencies have appeared within the recent ingestion window.
+
+The project currently tracks nine cryptocurrencies, so the expected result during normal operation is:
+
+9 coins
+
+This helps identify situations where the pipeline is technically receiving data but one or more cryptocurrencies are missing.
+
+# Event Volume by Coin
+
+Checks the number of recently received events for each cryptocurrency.
+
+This makes it easier to detect uneven ingestion, missing data, or an individual coin unexpectedly falling behind.
+
+Together, these checks validate:
+
+Uniqueness
+
+Valid prices
+
+Freshness
+
+Coin coverage
+
+Event-volume consistency
+
+The data-quality checks were useful beyond simply validating the final dataset. They also helped identify an actual pipeline problem during development, which showed why monitoring data freshness is important even when the infrastructure itself appears healthy.
 
 ## What I Wanted to Learn From This Project
 
@@ -279,16 +367,6 @@ The project gave me hands-on experience with concepts including:
 - Data-quality checks
 - Containerized data infrastructure with Docker
 - Debugging communication between multiple data systems
-
-## Current Status
-
-The core batch and streaming pipelines are complete and working.
-
-The remaining part of the project focuses on the analytics layer, including:
-
-- Building useful SQL analytics queries
-- Creating visualizations from the processed data
-- Adding architecture and pipeline visuals to make the project easier to understand
 
 ## Future Improvements
 
